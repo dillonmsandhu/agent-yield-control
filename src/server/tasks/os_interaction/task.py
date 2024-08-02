@@ -292,6 +292,9 @@ class OSInteraction(Task):
                 }
             self.problem_configs.update(dict_configs)
 
+        print(self.problem_configs)
+        print(self.data_config)
+
     def calculate_overall(self, results: List[TaskOutput]) -> Dict[str, Any]:
         overall = {
             "total": len([config for config in results if config]),
@@ -440,14 +443,19 @@ If the output is too long, I will truncate it. The truncated output is not compl
                 }
             )
         generated_words = 0
+        
+        question = config.check[0] is None
+        operation = config.check[0] is not None
+
+        fail_result = {"result": False, "question_task": question, "operation_task": operation}
+
         for _ in range(self.round_limit):
             total_prompt_len = sum( [ len(h.content.split()) for h in session.history] )             
             root = await session.action() # base output.
             generated_words += root.length
             
-            fail_result={"result": False, 
-                            "generated_words": generated_words,
-                            "total_prompt_len": total_prompt_len}
+            fail_result["generated_words"] = generated_words
+            fail_result["total_prompt_len"] = total_prompt_len
             
             # failure cases, break env loop
             if root.status == AgentOutputStatus.AGENT_CONTEXT_LIMIT:
@@ -465,8 +473,6 @@ If the output is too long, I will truncate it. The truncated output is not compl
 
             action = root["action"]
             content = root["content"]
-
-
             if action == "commit": # ends game with guess.
                 answer = content
                 break

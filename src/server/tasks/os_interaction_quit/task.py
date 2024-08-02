@@ -144,15 +144,19 @@ If the output is too long, I will truncate it. The truncated output is not compl
                     + config.description,
                 }
             )
+        question = config.check[0] is None
+        operation = config.check[0] is not None
+
+        fail_result = {"result": False, "question_task": question, "operation_task": operation}
+        
         generated_words = 0
         for _ in range(self.round_limit):
             total_prompt_len = sum( [ len(h.content.split()) for h in session.history] ) 
             root = await session.action() # base output.
             generated_words += root.length
-            
-            fail_result={"result": False, 
-                            "generated_words": generated_words,
-                            "total_prompt_len": total_prompt_len}
+
+            fail_result['total_prompt_len'] = total_prompt_len
+            fail_result['generated_words'] = generated_words
             
             # failure cases, break env loop
             if root.status == AgentOutputStatus.AGENT_CONTEXT_LIMIT:
