@@ -144,10 +144,20 @@ If the output is too long, I will truncate it. The truncated output is not compl
                     + config.description,
                 }
             )
-        question = config.check[0] is None
-        operation = config.check[0] is not None
+        
+        try:
+            question = config.check[0] is None
+            operation = config.check[0] is not None
+        except:
+            question = '?'
+            operation = '?'
 
         fail_result = {"result": False, "question_task": question, "operation_task": operation}
+        
+        try:
+            fail_result['task_description'] = config.description    
+        except:
+            pass
         
         generated_words = 0
         for _ in range(self.round_limit):
