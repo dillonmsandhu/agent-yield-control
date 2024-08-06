@@ -1,5 +1,5 @@
 os-quit-dev:
-  module: "src.server.tasks.os_interaction_quit.OSInteractionQuit"
+  module: src.server.tasks.os_interaction_quit.OSInteractionQuit
   parameters:
     name: "os-quit-dev"
     concurrency: 24
@@ -22,7 +22,7 @@ os-quit-dev:
       ignore: [ ]
 
 os-quit-std:
-  module: "src.server.tasks.os_interaction_quit.OSInteractionQuit"
+  module: src.server.tasks.os_interaction_quit.OSInteractionQuit
   parameters:
     name: "os-quit-std"
     concurrency: 24
