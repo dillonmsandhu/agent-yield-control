@@ -12,6 +12,7 @@ class Claude(AgentClient):
         if not api_args:
             api_args = {}
         api_args = deepcopy(api_args)
+        print("API Args" , api_args)
         self.key = api_args.pop("key", None) or os.getenv('Claude_API_KEY')
         api_args["model"] = api_args.pop("model", None)
         if not self.key:
@@ -24,13 +25,6 @@ class Claude(AgentClient):
             self.api_args["stop_sequences"] = [anthropic.HUMAN_PROMPT]
 
     def inference(self, history: List[dict]) -> str:
-        prompt = ""
-        for message in history:
-            if message["role"] == "user":
-                prompt += anthropic.HUMAN_PROMPT + message["content"]
-            else:
-                prompt += anthropic.AI_PROMPT + message["content"]
-        prompt += anthropic.AI_PROMPT
-        c = anthropic.Client(api_key=self.key)
-        resp = c.completions.create(prompt=prompt, **self.api_args)
-        return str(resp.completion)
+        c = anthropic.Anthropic(api_key=self.key)
+        message = c.messages.create(messages=history, **self.api_args) # requires model, max_tokens, and messages
+        return message.content[0].text
