@@ -14,6 +14,7 @@ def _start_worker(name, port, controller, definition):
     if "docker" in conf and "image" in conf["docker"]:
         docker = conf["docker"]
         project_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        print(f"Starting worker {name} on port {port}")
         subprocess.Popen(
             [
                 "docker",
