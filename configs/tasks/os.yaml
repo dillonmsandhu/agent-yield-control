@@ -1,5 +1,5 @@
 os-dev:
-  module: "src.server.tasks.os_interaction.OSInteraction"
+  module: src.server.tasks.os_interaction.OSInteraction
   parameters:
     name: "os-dev"
     concurrency: 24
@@ -22,7 +22,7 @@ os-dev:
       ignore: [ ]
 
 os-std:
-  module: "src.server.tasks.os_interaction.OSInteraction"
+  module: src.server.tasks.os_interaction.OSInteraction
   parameters:
     name: "os-std"
     concurrency: 24

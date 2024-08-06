@@ -8,7 +8,6 @@ from src.typings import TaskOutput, TaskSampleExecutionResult, SampleStatus, Age
 from copy import deepcopy
 import traceback
 
-
 class ALFWorld(Task):
 
     def __init__(self, **kwargs):
