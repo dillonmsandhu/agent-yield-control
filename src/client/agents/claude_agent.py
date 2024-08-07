@@ -26,5 +26,6 @@ class Claude(AgentClient):
 
     def inference(self, history: List[dict]) -> str:
         c = anthropic.Anthropic(api_key=self.key)
-        message = c.messages.create(messages=history, **self.api_args) # requires model, max_tokens, and messages
+        claude_role_hist = [ {'role': 'assistant' if h['role'] == 'agent' else 'user', 'content': h['content']} for h in history]
+        message = c.messages.create(messages=claude_role_hist, **self.api_args) # requires model, max_tokens, and messages
         return message.content[0].text
