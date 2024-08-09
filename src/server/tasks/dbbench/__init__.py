@@ -6,6 +6,7 @@ from src.server.task import Task, Session
 from src.typings import TaskOutput, SampleStatus, AgentOutputStatus
 from .Interaction import Container
 
+# Add quit prompt at the end:
 big_prompt = """
 I will ask you a question, then you should help me operate a MySQL database with SQL to answer the question.
 You have to explain the problem and your solution to me and write down your thoughts.
@@ -25,6 +26,10 @@ Your answer should be accurate. Your answer must be exactly the same as the corr
 If the question is about modifying the database, then after done operation, your answer field can be anything.
 If your response cannot match any pattern I mentioned earlier, you will be judged as FAIL immediately.
 Your input will be raw MySQL response, you have to deal with it by yourself.
+It is also possible to quit the task using "Action: quit". 
+It is preferable to complete the task, but if you will not be able to, quit as early as possible. 
+Specifically, you must maximize S - N/T, where S=1 in the case of a success and 0 in the case of failure, and N/T is the number of steps you take before quitting or succeeding normalized by the budget T=15. 
+Thus, it is preferable to quit over failing.
 """
 
 
@@ -58,7 +63,7 @@ COMMIT;
     return sql, items_data
 
 
-class DBBench(Task):
+class DBBenchQuit(Task):
     def __init__(self, **configs):
         super().__init__(**configs)
         self.data_file = configs.pop("data_file")
@@ -100,7 +105,8 @@ class DBBench(Task):
         try:
             action = re.search(r"Action: (.*?)\n", res)
             rounds = 0
-            while action and action.group(1) == "Operation" and rounds < self.max_round:
+            # end the task whenever action=quit
+            while action and action.group(1) == "Operation" and rounds < self.max_round and action.group(1) != "quit":
                 res = re.search(r"```sql\n([\s\S]*?)\n```", res)
                 if not res:
                     finish_reason = SampleStatus.AGENT_VALIDATION_FAILED
@@ -128,6 +134,10 @@ class DBBench(Task):
                     finish_reason = SampleStatus.AGENT_VALIDATION_FAILED
                 if rounds >= self.max_round and not answer:
                     finish_reason = SampleStatus.TASK_LIMIT_REACHED
+
+            if answer == "quit":
+                finish_reason = SampleStatus.AGENT_QUIT
+
         except Exception as e:
             error = str(e)
             answer = ""

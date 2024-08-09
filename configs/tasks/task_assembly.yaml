@@ -5,6 +5,7 @@ default:
 import:
   - webshop.yaml
   - dbbench.yaml
+  - dbbench_quit.yaml # quits
   - mind2web.yaml
   - card_game.yaml
   - kg.yaml
