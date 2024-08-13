@@ -5,7 +5,9 @@ from typing import Callable, Dict, List, Any
 from src.server.task import Task, Session
 from src.typings import TaskOutput, SampleStatus, AgentOutputStatus
 from .Interaction import Container
+from ..dbbench import build_init_sql, DBBench
 
+# Add quit prompt at the end:
 big_prompt = """
 I will ask you a question, then you should help me operate a MySQL database with SQL to answer the question.
 You have to explain the problem and your solution to me and write down your thoughts.
@@ -25,68 +27,19 @@ Your answer should be accurate. Your answer must be exactly the same as the corr
 If the question is about modifying the database, then after done operation, your answer field can be anything.
 If your response cannot match any pattern I mentioned earlier, you will be judged as FAIL immediately.
 Your input will be raw MySQL response, you have to deal with it by yourself.
+It is also possible to quit the task using "Action: quit". 
+It is preferable to complete the task, but if you will not be able to, quit as early as possible. 
+Specifically, you must maximize S - N/T, where S=1 in the case of a success and 0 in the case of failure, and N/T is the number of steps you take before quitting or succeeding normalized by the budget T=15. 
+Thus, it is preferable to quit over failing.
 """
 
 
-def build_init_sql(entry):
-    name = entry["table"]["table_name"]
-    columns = ",".join(
-        [
-            f"`{column['name']}` TEXT"
-            for column in entry["table"]["table_info"]["columns"]
-        ]
-    )
-    column_names = ",".join(
-        [f"`{column['name']}`" for column in entry["table"]["table_info"]["columns"]]
-    )
-    items = []
-    items_data = ()
-    for row in entry["table"]["table_info"]["rows"]:
-        item = "("
-        for col in row:
-            item += "%s,"
-            items_data += (col,)
-        item = item[:-1] + ")"
-        items.append(item)
-    items = ",".join(items)
-    sql = f"""CREATE DATABASE IF NOT EXISTS `{name}`;
-USE `{name}`;
-CREATE TABLE IF NOT EXISTS `{name}` ({columns});
-INSERT INTO `{name}` ({column_names}) VALUES {items}; 
-COMMIT;
-"""
-    return sql, items_data
-
-
-class DBBench(Task):
+class DBBenchQuit(DBBench):
     def __init__(self, **configs):
         super().__init__(**configs)
-        self.data_file = configs.pop("data_file")
-        self.max_round = configs.pop("max_round", 5)
-        self.dataset = []
-
-        with open(self.data_file) as f:
-            if self.data_file.endswith("json"):
-                data = json.loads(f.read())
-            else:
-                data = [json.loads(line) for line in f.readlines()]
-
-        for entry in data:
-            if entry["type"][0] in ("INSERT", "DELETE", "UPDATE"):
-                ans = entry.pop("answer_md5")
-            else:
-                ans = entry.pop("label")
-            inp = entry
-            self.dataset.append((inp, ans))
-
-        self.container = Container()
-
-    def get_indices(self) -> List[Any]:
-        return list(range(len(self.dataset)))
 
     async def start_sample(self, index: int, session: Session) -> TaskOutput:
         entry = self.dataset[index][0]
-        # print(f"------------- Entry {index} --------------- \n {entry} \n -------------------")
         try:
             correct_answer = self.dataset[index][1]
         except:
@@ -100,13 +53,18 @@ class DBBench(Task):
         prompt = entry["description"] + "\n" + entry["add_description"]
         session.inject({"role": "user", "content": prompt})
         res = (await session.action()).content or ""
-
         answer = ""
+        quit = False
         finish_reason = SampleStatus.COMPLETED
         try:
             action = re.search(r"Action: (.*?)\n", res)
             rounds = 0
             while action and action.group(1) == "Operation" and rounds < self.max_round:
+                # record when the agent quits and end the task
+                if quit:
+                    finish_reason = SampleStatus.QUIT
+                    print("Breaking due to quit action")
+                    break
                 res = re.search(r"```sql\n([\s\S]*?)\n```", res)
                 if not res:
                     finish_reason = SampleStatus.AGENT_VALIDATION_FAILED
@@ -124,10 +82,15 @@ class DBBench(Task):
                     break
                 res = res.content
                 action = re.search(r"Action: (.*?)\n", res)
+                # quit = re.search(r"Action: quit", res) is not None
+                quit = "quit" in res
                 rounds += 1
             else:
                 answer = re.search(r"\nFinal Answer:(.*)", res)
-                if answer:
+                quit = "quit" in res
+                if quit:
+                    finish_reason = SampleStatus.QUIT
+                elif answer:
                     answer = answer.group(1)
                 else:
                     answer = ""
@@ -135,10 +98,11 @@ class DBBench(Task):
                 if rounds >= self.max_round and not answer:
                     finish_reason = SampleStatus.TASK_LIMIT_REACHED
         except Exception as e:
+            print("Raising exception.... ", e)
             error = str(e)
             answer = ""
             finish_reason = SampleStatus.UNKNOWN
-        else:
+        else: # execute if no exception
             error = ""
         if entry["type"][0] in ("INSERT", "DELETE", "UPDATE"):
             columns = ",".join(
@@ -152,7 +116,6 @@ class DBBench(Task):
                 f"from( SELECT substring(MD5(CONCAT_WS(',', {columns})), 1, 5) AS rowhash FROM `{db}`) as sub;"
             )
             answer = container.execute(md5_query, db)
-
         container.execute(f"drop database `{db}`")
         result={
                 "answer": str(answer),
@@ -163,100 +126,4 @@ class DBBench(Task):
                 "description": entry["description"],
             }
         result['correct'] = self.check_answer(entry["type"][0], result, correct_answer)
-
-
         return TaskOutput(status=finish_reason, result=result, history=session.history)
-
-    def calculate_overall(self, results: List[TaskOutput]) -> Dict[str, Any]:
-        metrics = self.metrics
-        ret = {}
-        outputs = []
-        answers = []
-        for result in results:
-            outputs.append(result.result)
-            answers.append(self.dataset[result.index][1])
-        for key, func in metrics.items():
-            ret[key] = func(outputs, answers)
-        return ret
-    @staticmethod
-    def check_answer(typ, entry, cor):
-        # Entry is used to mean result in this setting, *not* the dataset entry as in the start_sample method
-        correct = 0
-        if not entry:
-            return
-        ans, t = entry["answer"], entry["type"]
-        if t != typ and not (
-            typ == "SELECT" and t not in ("INSERT", "UPDATE")
-        ):
-            return
-        if t in ("INSERT", "DELETE", "UPDATE"):
-            correct += ans == cor
-        else:
-            try:
-                ans = list(eval(ans))
-            except:
-                ans = [ans]
-            if len(ans) == 1 and len(cor) == 1:
-                try:
-                    correct += float(ans[0]) == float(cor[0])
-                except (ValueError, TypeError):
-                    correct += ans[0] == cor[0]
-                else:
-                    print(ans, cor)
-            else:
-                try:
-                    cor = set(cor)
-                    ans = set(ans)
-                    correct += ans == cor
-                except:
-                    pass
-        return correct
-
-    @property
-    def metrics(self) -> Dict[str, Callable[[List[Dict[str, Any]], List[str]], float]]:
-        def factory(typ):
-            def acc(inp: List[Dict[str, Any]], tar: List[str]) -> float:
-                correct = 0
-                total = 0
-                for entry, cor in zip(inp, tar):
-                    correct += self.check_answer(typ, entry, cor) if self.check_answer(typ, entry, cor) else 0
-                    total += 1
-                if total == 0:
-                    print(f"WARNING: {typ} does not exist!")
-                    return 0
-                return correct / total
-
-            return acc
-
-        types = [
-            "other",
-            "counting",
-            "comparison",
-            "ranking",
-            "aggregation-SUM",
-            "aggregation-MIN",
-            "aggregation-MAX",
-            "aggregation-AVG",
-            "SELECT",
-            "INSERT",
-            "UPDATE",
-        ]
-
-        ret = {}
-        for typ in types:
-            ret[typ + "_accuracy"] = factory(typ)
-
-        ret["overall_cat_accuracy"] = (
-            lambda inp, tar: sum(
-                [
-                    ret[typ + "_accuracy"](inp, tar)
-                    for typ in ("SELECT", "INSERT", "UPDATE")
-                ]
-            )
-            / 3
-        )
-
-        return ret
-
-    def release(self):
-        self.container.delete()
