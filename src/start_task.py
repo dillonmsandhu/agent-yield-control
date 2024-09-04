@@ -122,6 +122,7 @@ if __name__ == "__main__":
         controller_addr = "http://localhost:5000/api"
 
     if "start" in config.keys() and not args.start:
+        print("Starting workers based on config file")
         for key, val in config.get("start", {}).items():
             for _ in range(val):
                 _start_worker(key, base_port, controller_addr, config["definition"])

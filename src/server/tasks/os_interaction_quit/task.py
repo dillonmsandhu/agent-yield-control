@@ -120,7 +120,7 @@ Act: answer(Your answer to the question should be put in this pair of parenthese
 
 Think: put your thought here.
 
-Act: finish
+Act: quit
 
 If the output is too long, I will truncate it. The truncated output is not complete. You have to deal with the truncating problem by yourself. Attention, your bash code should not contain any input operation. Once again, you should take only exact one of the three actions in each turn.\n\n""",
             }
